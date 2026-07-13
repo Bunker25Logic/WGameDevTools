@@ -17,48 +17,53 @@ import { UploadIcon, SparklesIcon } from './Icons';
 const DraggableAnchor: React.FC<{
   effect: DistortionEffect;
   index: number;
-  imgRect: DOMRect | null;
+  imgRef: React.RefObject<HTMLImageElement>;
   onChange: (newEffect: DistortionEffect) => void;
-}> = ({ effect, index, imgRect, onChange }) => {
+}> = ({ effect, index, imgRef, onChange }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [imgSize, setImgSize] = useState<{width: number, height: number} | null>(null);
 
-  const handlePointerDown = (e: React.PointerEvent) => {
+  // We need the width for the radius display
+  useEffect(() => {
+    if (imgRef.current) {
+      setImgSize({
+        width: imgRef.current.getBoundingClientRect().width,
+        height: imgRef.current.getBoundingClientRect().height
+      });
+    }
+  }, [imgRef.current]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  useEffect(() => {
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!isDragging || !imgRect) return;
-      
-      // Calculate normalized coordinates
-      let x = (e.clientX - imgRect.left) / imgRect.width;
-      let y = (e.clientY - imgRect.top) / imgRect.height;
-      
-      // Clamp between 0 and 1
-      x = Math.max(0, Math.min(1, x));
-      y = Math.max(0, Math.min(1, y));
-      
-      onChange({ ...effect, centerX: x, centerY: y });
-    };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging || !imgRef.current) return;
+    
+    const rect = imgRef.current.getBoundingClientRect();
+    
+    // Calculate normalized coordinates
+    let x = (e.clientX - rect.left) / rect.width;
+    let y = (e.clientY - rect.top) / rect.height;
+    
+    // Clamp between 0 and 1
+    x = Math.max(0, Math.min(1, x));
+    y = Math.max(0, Math.min(1, y));
+    
+    onChange({ ...effect, centerX: x, centerY: y });
+  };
 
-    const handlePointerUp = () => setIsDragging(false);
-
-    if (isDragging) {
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-    }
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-  }, [isDragging, imgRect, effect, onChange]);
-
-  if (!imgRect) return null;
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
 
   const left = effect.centerX * 100 + '%';
   const top = effect.centerY * 100 + '%';
-  const radiusPx = effect.radius * imgRect.width;
+  const radiusPx = imgSize ? effect.radius * imgSize.width : 50;
 
   // Colors based on effect type
   const color = effect.type === 'bulge' ? '59, 130, 246' : '239, 68, 68'; // Blue for bulge, Red for pinch
@@ -83,6 +88,9 @@ const DraggableAnchor: React.FC<{
       {/* Draggable Dot */}
       <div
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
           position: 'absolute',
           left,
@@ -101,7 +109,8 @@ const DraggableAnchor: React.FC<{
           justifyContent: 'center',
           color: 'white',
           fontSize: '10px',
-          fontWeight: 'bold'
+          fontWeight: 'bold',
+          touchAction: 'none' // Prevent scrolling on mobile while dragging
         }}
         title={`Arraste para ajustar o centro. Efeito: ${effect.type}`}
       >
@@ -348,13 +357,12 @@ const AnimatedSpriteGenerator: React.FC = () => {
                       className="max-w-full max-h-[400px] object-contain relative z-10"
                     />
                     
-                    {/* Render Draggable Anchors only in Adjustment Mode */}
                     {adjustmentMode && riggerData?.effects.map((effect, idx) => (
                       <DraggableAnchor
                         key={idx}
                         index={idx}
                         effect={effect}
-                        imgRect={imgRect}
+                        imgRef={imgRef}
                         onChange={(newEffect) => {
                           const newEffects = [...riggerData.effects];
                           newEffects[idx] = newEffect;

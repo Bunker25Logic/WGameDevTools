@@ -90,14 +90,14 @@ export function rotateSprite(
 }
 
 /**
- * Generate animation frames using AI (Gemini or Grok)
+ * Analyze sprite with AI to get rigger data without generating frames yet
  */
-export async function generateAnimationFrames(
+export async function analyzeSpriteWithAI(
   baseImageDataUrl: string,
   prompt: string,
   frameCount: number,
   aiProvider: 'gemini' | 'grok' = 'gemini',
-): Promise<AnimationFrame[]> {
+): Promise<SmartRiggerData> {
   const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY || '';
   
   const { BACKEND_URL, USE_BACKEND_PROXY } = await import('./backendConfig');
@@ -200,21 +200,57 @@ You MUST output ONLY a valid JSON object. No markdown, no backticks, no explanat
       }
     }
 
-    const frames = await createInterpolatedFrames(
-      baseImageDataUrl,
-      frameCount,
-      aiAnalysis,
-      prompt
-    );
-
-    return frames;
+    return parseAIAnalysis(aiAnalysis, prompt, frameCount);
   } catch (error: any) {
-    console.error(`Error generating animation frames with ${aiProvider}:`, error);
+    console.error(`Error analyzing sprite with ${aiProvider}:`, error);
     throw new Error(
-      error.message || `Failed to generate animation frames using ${aiProvider}. Please check your ${aiProvider.toUpperCase()}_API_KEY and try again.`,
+      error.message || `Failed to analyze sprite using ${aiProvider}. Please check your ${aiProvider.toUpperCase()}_API_KEY and try again.`,
     );
   }
 }
+
+/**
+ * Generate frames directly from pre-computed rigger data
+ */
+export async function generateFramesFromRiggerData(
+  baseImageDataUrl: string,
+  frameCount: number,
+  riggerData: SmartRiggerData
+): Promise<AnimationFrame[]> {
+  const frames: AnimationFrame[] = [];
+
+  for (let i = 0; i < frameCount; i++) {
+    const progress = i / (frameCount - 1);
+    const frameDataUrl = await applyFrameTransformation(
+      baseImageDataUrl,
+      progress,
+      i,
+      riggerData
+    );
+
+    frames.push({
+      id: `frame-${i}`,
+      dataUrl: frameDataUrl,
+      frameNumber: i + 1,
+    });
+  }
+
+  return frames;
+}
+
+/**
+ * Legacy wrapper: Analyzes and generates frames in one go
+ */
+export async function generateAnimationFrames(
+  baseImageDataUrl: string,
+  prompt: string,
+  frameCount: number,
+  aiProvider: 'gemini' | 'grok' = 'gemini',
+): Promise<AnimationFrame[]> {
+  const riggerData = await analyzeSpriteWithAI(baseImageDataUrl, prompt, frameCount, aiProvider);
+  return generateFramesFromRiggerData(baseImageDataUrl, frameCount, riggerData);
+}
+
 
 function parseAIAnalysis(aiAnalysis: string, prompt: string, frameCount: number): SmartRiggerData {
   try {
@@ -289,33 +325,7 @@ function parseAIAnalysis(aiAnalysis: string, prompt: string, frameCount: number)
   }
 }
 
-async function createInterpolatedFrames(
-  baseImageDataUrl: string,
-  frameCount: number,
-  aiAnalysis: string,
-  userPrompt: string
-): Promise<AnimationFrame[]> {
-  const frames: AnimationFrame[] = [];
-  const riggerData = parseAIAnalysis(aiAnalysis, userPrompt, frameCount);
 
-  for (let i = 0; i < frameCount; i++) {
-    const progress = i / (frameCount - 1);
-    const frameDataUrl = await applyFrameTransformation(
-      baseImageDataUrl,
-      progress,
-      i,
-      riggerData
-    );
-
-    frames.push({
-      id: `frame-${i}`,
-      dataUrl: frameDataUrl,
-      frameNumber: i + 1,
-    });
-  }
-
-  return frames;
-}
 
 function render3DRotation(
   ctx: CanvasRenderingContext2D,

@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
-    "https://seu-usuario.github.io", // Substitua pelo seu usuário
+    "https://w-game-dev-tools.vercel.app",
   ];
 
   const origin = req.headers.origin;

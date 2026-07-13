@@ -1,7 +1,7 @@
 // API Proxy para Gemini - Protege a chave API
 export default async function handler(req, res) {
   // CORS - Lendo do ambiente, com fallback para localhost em dev
-  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:3001,http://localhost:5173";
+  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:3001,http://localhost:5173,https://w-game-dev-tools.vercel.app";
   const allowedOrigins = allowedOriginsEnv.split(",").map(s => s.trim());
 
   const origin = req.headers.origin;

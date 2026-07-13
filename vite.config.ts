@@ -7,7 +7,7 @@ import path from 'path'
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: '/WGameDevTools/', // Base path para GitHub Pages
+      base: '/', // Base path para Vercel
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -24,8 +24,8 @@ export default defineConfig(({ mode }) => {
             theme_color: '#0f172a',
             background_color: '#0f172a',
             display: 'standalone',
-            start_url: '/WGameDevTools/',
-            scope: '/WGameDevTools/',
+            start_url: '/',
+            scope: '/',
             orientation: 'portrait',
             icons: [
               {

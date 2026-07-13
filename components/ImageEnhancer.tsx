@@ -108,8 +108,9 @@ export default function ImageEnhancer() {
                   onChange={(e) => setOptions({ ...options, algorithm: e.target.value as any })}
                   className="w-full bg-white/20 text-white rounded-lg px-4 py-2 border border-white/30"
                 >
-                  <option value="bicubic">Bicubic (Suave)</option>
-                  <option value="nearest">Nearest (Pixel Art)</option>
+                  <option value="bicubic">Bicubic (Suave, Fotos)</option>
+                  <option value="nearest">Nearest (Blocos)</option>
+                  <option value="epx">EPX / Scale2x (Pixel Art Suave)</option>
                 </select>
               </div>
 

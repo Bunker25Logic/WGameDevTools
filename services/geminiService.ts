@@ -4,8 +4,6 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // Note: In a real production app for public use, you'd likely proxy this or ask user for key
 // For this demo structure, we use import.meta.env as per Vite conventions
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-const genAI = new GoogleGenerativeAI(API_KEY);
-
 export const analyzeFrame = async (base64Image: string): Promise<string> => {
   try {
     const base64Data = base64Image.split(',')[1];
@@ -34,6 +32,8 @@ export const analyzeFrame = async (base64Image: string): Promise<string> => {
       return data.text || "No analysis available.";
     } else {
       // Direct call fallback
+      if (!API_KEY) throw new Error("VITE_GEMINI_API_KEY is required for direct local access.");
+      const genAI = new GoogleGenerativeAI(API_KEY);
       const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
       const result = await model.generateContent([
         {

@@ -94,9 +94,11 @@ export async function generateAnimationFrames(
 ): Promise<AnimationFrame[]> {
   const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY || '';
   
-  if (aiProvider === 'gemini' && !API_KEY) {
+  const { BACKEND_URL, USE_BACKEND_PROXY } = await import('./backendConfig');
+
+  if (aiProvider === 'gemini' && !API_KEY && !USE_BACKEND_PROXY) {
     throw new Error(
-      "Gemini API key not configured. Please set VITE_GEMINI_API_KEY in .env.local",
+      "Gemini API key not configured for local direct access.",
     );
   }
   
@@ -108,9 +110,6 @@ export async function generateAnimationFrames(
 
   try {
     let aiAnalysis = '';
-    
-    // Importar configuração do backend
-    const { BACKEND_URL, USE_BACKEND_PROXY } = await import('./backendConfig');
     
     if (USE_BACKEND_PROXY) {
       // Usar backend proxy (seguro)
@@ -197,6 +196,7 @@ Format your response as a JSON array of frame descriptions.`;
       baseImageDataUrl,
       frameCount,
       aiAnalysis,
+      prompt // Pass the user prompt for reliable keyword matching
     );
 
     return frames;
@@ -217,6 +217,7 @@ async function createInterpolatedFrames(
   baseImageDataUrl: string,
   frameCount: number,
   aiAnalysis: string,
+  userPrompt: string
 ): Promise<AnimationFrame[]> {
   const frames: AnimationFrame[] = [];
 
@@ -225,7 +226,7 @@ async function createInterpolatedFrames(
     const frameDataUrl = await applyFrameTransformation(
       baseImageDataUrl,
       progress,
-      aiAnalysis,
+      userPrompt, // Use user prompt for keyword detection instead of AI JSON
     );
 
     frames.push({
@@ -242,11 +243,17 @@ async function createInterpolatedFrames(
  * Analyze prompt to determine animation type and parameters
  */
 function analyzePrompt(prompt: string): {
-  type: 'rotate' | 'jump' | 'swing' | 'fly' | 'bounce' | 'wave' | 'default';
+  type: 'rotate' | 'jump' | 'swing' | 'fly' | 'bounce' | 'wave' | 'wind' | 'breathe' | 'default';
   intensity: number;
 } {
   const lowerPrompt = prompt.toLowerCase();
   
+  if (lowerPrompt.includes('vento') || lowerPrompt.includes('wind') || lowerPrompt.includes('capa')) {
+    return { type: 'wind', intensity: 0.8 };
+  }
+  if (lowerPrompt.includes('respira') || lowerPrompt.includes('breathe') || lowerPrompt.includes('peito')) {
+    return { type: 'breathe', intensity: 0.6 };
+  }
   if (lowerPrompt.includes('gir') || lowerPrompt.includes('rotat') || lowerPrompt.includes('spin')) {
     return { type: 'rotate', intensity: 1.0 };
   }
@@ -329,12 +336,55 @@ function render3DRotation(
 }
 
 /**
+ * Render mathematically precise wind deformation using 1-pixel scanline displacement (SNES style)
+ */
+function renderWindEffect(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  progressTime: number,
+  intensity: number,
+  centerX: number,
+  centerY: number,
+): void {
+  // 1 slice per pixel ensures ultra-smooth curves without blocky wobbles
+  const sliceCount = img.height; 
+  const sliceHeight = 1;
+  
+  for (let y = 0; y < sliceCount; y++) {
+    // ny goes from 0 (top of sprite/head) to 1 (bottom of sprite/feet)
+    const ny = y / sliceCount;
+    
+    // Rigidity curve: by powering ny to 2.5, the top half of the sprite stays almost perfectly still
+    // while the bottom half (cape, coat, legs) sways smoothly.
+    const rigidity = Math.pow(ny, 2.5); 
+    
+    // Mathematical wave formula:
+    // Speed determines how fast the wave travels.
+    // Frequency determines how many "ripples" exist along the cape.
+    const speed = 10;
+    const frequency = 4.5;
+    const amplitude = 18 * intensity;
+    
+    const waveX = Math.sin(progressTime * speed + ny * frequency) * amplitude * rigidity;
+    
+    const drawX = centerX - img.width / 2 + waveX;
+    const drawY = centerY - img.height / 2 + y;
+    
+    ctx.drawImage(
+      img,
+      0, y, img.width, sliceHeight, // Source: 1 pixel tall row
+      drawX, drawY, img.width, sliceHeight // Destination: 1 pixel tall row
+    );
+  }
+}
+
+/**
  * Apply 3D transformation to create immersive animation frame
  */
 async function applyFrameTransformation(
   imageDataUrl: string,
   progress: number,
-  aiAnalysis: string,
+  userPrompt: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -351,18 +401,36 @@ async function applyFrameTransformation(
       canvas.width = img.width + padding * 2;
       canvas.height = img.height + padding * 2;
 
-      // Analyze AI response to determine animation type
-      const animation = analyzePrompt(aiAnalysis);
+      // Analyze user prompt to determine animation type
+      const animation = analyzePrompt(userPrompt);
       
       // Calculate animation parameters based on progress and type
       const t = progress * Math.PI * 2; // Full cycle
       let rotateX = 0, rotateY = 0, rotateZ = 0;
       let translateX = 0, translateY = 0;
-      let scale = 1;
+      let scaleX = 1, scaleY = 1;
       let shadowOffsetX = 0, shadowOffsetY = 0, shadowBlur = 0;
       let use3DRotation = false;
+      let useWindDeformation = false;
+      let anchorY = 0; // Allows anchoring the transformation (e.g. at the feet)
 
       switch (animation.type) {
+        case 'wind':
+          useWindDeformation = true;
+          shadowOffsetY = 12;
+          shadowBlur = 10;
+          break;
+
+        case 'breathe':
+          // Mathematically precise Squash & Stretch anchored at the feet
+          const breathPhase = Math.sin(t);
+          scaleY = 1 + breathPhase * 0.035 * animation.intensity;
+          scaleX = 1 - breathPhase * 0.015 * animation.intensity;
+          anchorY = img.height / 2; // Anchor at the very bottom (feet) so it doesn't float
+          shadowOffsetY = 12;
+          shadowBlur = 10 + breathPhase * 2;
+          break;
+
         case 'rotate':
           // Full 3D rotation using slicing technique
           rotateY = t * animation.intensity;
@@ -378,7 +446,8 @@ async function applyFrameTransformation(
           const jumpProgress = Math.sin(t);
           translateY = -Math.abs(jumpProgress) * 100 * animation.intensity;
           rotateX = jumpProgress * 0.15;
-          scale = 1 - Math.abs(jumpProgress) * 0.08; // Squash and stretch
+          scaleY = 1 - Math.abs(jumpProgress) * 0.08; // Squash and stretch
+          scaleX = 1 + Math.abs(jumpProgress) * 0.04;
           shadowOffsetY = 25 + Math.abs(jumpProgress) * 40;
           shadowBlur = 15 + Math.abs(jumpProgress) * 25;
           break;
@@ -400,7 +469,7 @@ async function applyFrameTransformation(
           translateY = Math.sin(t) * 40 * animation.intensity;
           translateX = Math.cos(t * 0.5) * 25;
           rotateZ = Math.sin(t) * 0.08;
-          scale = 1 + Math.sin(t) * 0.06;
+          scaleX = scaleY = 1 + Math.sin(t) * 0.06;
           shadowOffsetY = 20 + Math.abs(Math.sin(t)) * 15;
           shadowBlur = 25;
           break;
@@ -409,7 +478,8 @@ async function applyFrameTransformation(
           // Bouncing motion
           const bounceProgress = Math.abs(Math.sin(t * 2));
           translateY = -bounceProgress * 80 * animation.intensity;
-          scale = 1 + (1 - bounceProgress) * 0.2; // Squash on impact
+          scaleY = 1 + (1 - bounceProgress) * 0.2; // Squash on impact
+          scaleX = 1 - (1 - bounceProgress) * 0.1;
           shadowOffsetY = 20 + bounceProgress * 35;
           shadowBlur = 10 + bounceProgress * 20;
           break;
@@ -417,7 +487,7 @@ async function applyFrameTransformation(
         case 'wave':
           // Wave/breathing effect
           const wave = Math.sin(t);
-          scale = 1 + wave * 0.1 * animation.intensity;
+          scaleX = scaleY = 1 + wave * 0.1 * animation.intensity;
           rotateZ = wave * 0.06;
           translateY = wave * 8;
           shadowOffsetY = 15;
@@ -425,10 +495,10 @@ async function applyFrameTransformation(
           break;
 
         default:
-          // Subtle breathing animation
-          const breathe = Math.sin(t);
-          scale = 1 + breathe * 0.04;
-          translateY = breathe * 5;
+          // Subtle breathing animation fallback
+          const breatheFallback = Math.sin(t);
+          scaleX = scaleY = 1 + breatheFallback * 0.04;
+          translateY = breatheFallback * 5;
           shadowOffsetY = 12;
           shadowBlur = 10;
       }
@@ -470,6 +540,9 @@ async function applyFrameTransformation(
       if (use3DRotation) {
         // Use realistic 3D rotation with slicing
         render3DRotation(ctx, img, rotateY, 0, 0);
+      } else if (useWindDeformation) {
+        // Use 2D pixel displacement for wind/cape waving
+        renderWindEffect(ctx, img, progress, animation.intensity, 0, 0);
       } else {
         // Use standard 2D transformations for other animations
         
@@ -484,8 +557,14 @@ async function applyFrameTransformation(
           ctx.rotate(rotateZ);
         }
 
-        // Apply scale
-        ctx.scale(scale, scale);
+        // Apply scale with anchor point support (Squash & Stretch)
+        if (anchorY !== 0) {
+          ctx.translate(0, anchorY);
+          ctx.scale(scaleX, scaleY);
+          ctx.translate(0, -anchorY);
+        } else {
+          ctx.scale(scaleX, scaleY);
+        }
 
         // Draw image centered
         ctx.drawImage(img, -img.width / 2, -img.height / 2);

@@ -50,9 +50,9 @@ const VideoBackgroundRemover: React.FC = () => {
   const [edgeBlur, setEdgeBlur] = useState<number>(2); // Smoothing amount for AI mask
 
   // Chroma Key Settings (For Objects/Animals)
-  const [keyColor, setKeyColor] = useState<string>('#00ff00');
-  const [similarity, setSimilarity] = useState<number>(0.4);
-  const [smoothness, setSmoothness] = useState<number>(0.15); 
+  const [keyColor, setKeyColor] = useState<string>('#0d111a'); // Dark background default
+  const [similarity, setSimilarity] = useState<number>(0.08); // Baixei o padrão para não cortar a cobra
+  const [smoothness, setSmoothness] = useState<number>(0.04); 
 
   // Trimming State
   const [duration, setDuration] = useState(0);
@@ -502,10 +502,9 @@ const VideoBackgroundRemover: React.FC = () => {
           muted={false} /* Allow sound for captureStream */
           loop={false}
           onTimeUpdate={handleTimeUpdate}
-          crossOrigin="anonymous"
         ></video>
 
-        <img ref={imgRef} className="hidden" alt="source" crossOrigin="anonymous" />
+        <img ref={imgRef} className="hidden" alt="source" />
 
         {/* Output Canvas */}
         <canvas 
@@ -736,6 +735,21 @@ const VideoBackgroundRemover: React.FC = () => {
                  <div className="flex flex-col w-24 hidden sm:flex">
                      <span className="text-[10px] text-slate-400 text-center">Softness</span>
                      <input type="range" min="0" max="10" step="1" value={edgeBlur} onChange={(e) => setEdgeBlur(parseInt(e.target.value))} className="h-1 accent-indigo-500"/>
+                 </div>
+            )}
+
+            {/* Color Key Live Controls */}
+            {appState === 'processing' && segMethod === 'color' && (
+                 <div className="flex gap-3 hidden sm:flex items-center">
+                     <input type="color" value={keyColor} onChange={(e) => setKeyColor(e.target.value)} className="w-6 h-6 rounded cursor-pointer border-0" title="Key Color" />
+                     <div className="flex flex-col w-20">
+                         <span className="text-[10px] text-slate-400 text-center">Similarity</span>
+                         <input type="range" min="0" max="1" step="0.01" value={similarity} onChange={(e) => setSimilarity(parseFloat(e.target.value))} className="h-1 accent-emerald-500"/>
+                     </div>
+                     <div className="flex flex-col w-20">
+                         <span className="text-[10px] text-slate-400 text-center">Smoothness</span>
+                         <input type="range" min="0" max="0.5" step="0.01" value={smoothness} onChange={(e) => setSmoothness(parseFloat(e.target.value))} className="h-1 accent-emerald-500"/>
+                     </div>
                  </div>
             )}
 

@@ -133,7 +133,8 @@ Frame count: ${frameCount}
    - 0.0 means no distortion (base image).
    - 1.0 means maximum distortion.
    - Example for an eye blink over 10 frames: [0, 0, 0, 0.4, 1.0, 1.0, 0.4, 0, 0, 0]
-4. If the animation requires the WHOLE character to move (like jumping, flying, or wind blowing), choose a "globalAnimation" from this list: "none", "wind", "rotate", "jump", "swing", "fly", "bounce", "wave", "breathe". Set "globalIntensity" from 0.0 to 1.0.
+4. CRITICAL SIZING: The 'radius' value represents the size of the distortion relative to the image size. For small facial features like eyes or mouths, use a very small radius (e.g., 0.03 to 0.08). For larger parts like chests, use 0.15 to 0.25.
+5. If the animation requires the WHOLE character to move (like jumping, flying, or wind blowing), choose a "globalAnimation" from this list: "none", "wind", "rotate", "jump", "swing", "fly", "bounce", "wave", "breathe". Set "globalIntensity" from 0.0 to 1.0.
 
 You MUST output ONLY a valid JSON object. No markdown, no backticks, no explanations. Just the JSON:
 {
@@ -143,8 +144,8 @@ You MUST output ONLY a valid JSON object. No markdown, no backticks, no explanat
     {
       "type": "pinch_y",
       "centerX": 0.45,
-      "centerY": 0.35,
-      "radius": 0.1,
+      "centerY": 0.15,
+      "radius": 0.05,
       "intensitySequence": [0,0,0,1,1,0,0,0]
     }
   ]
@@ -232,6 +233,7 @@ function parseAIAnalysis(aiAnalysis: string, prompt: string, frameCount: number)
     }
 
     const parsed = JSON.parse(jsonStr);
+    console.log("🎯 Gemini Smart Rigger analisou a imagem e gerou:", parsed);
     
     // Validate arrays length
     if (parsed.effects) {

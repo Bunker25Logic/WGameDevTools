@@ -11,9 +11,14 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "gif.js": "^0.2.0",
+    "i18next": "^26.3.6",
     "jszip": "^3.10.1",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "react-hot-toast": "^2.6.0",
+    "react-i18next": "^17.0.9",
+    "react-router-dom": "^7.18.1",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/jszip": "^3.4.0",
@@ -22,5 +27,9 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.2.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true
   }
 }

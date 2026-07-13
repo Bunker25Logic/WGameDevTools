@@ -8,24 +8,46 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 export const analyzeFrame = async (base64Image: string): Promise<string> => {
   try {
-    // Remove the data URL prefix (e.g., "data:image/png;base64,")
     const base64Data = base64Image.split(',')[1];
     
-    // Using gemini-2.5-flash for image analysis
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Importar configuração do backend
+    const { BACKEND_URL, USE_BACKEND_PROXY } = await import('./backendConfig');
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: 'image/png', // Assuming PNG from canvas
+    if (USE_BACKEND_PROXY) {
+      const response = await fetch(`${BACKEND_URL}/api/gemini`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      },
-      'Describe this video frame in detail. Describe the lighting, composition, and main subjects.',
-    ]);
+        body: JSON.stringify({
+          prompt: 'Analyze this frame in detail.',
+          systemPrompt: 'Describe this video frame in detail. Describe the lighting, composition, and main subjects.',
+          imageData: base64Data,
+        }),
+      });
 
-    const response = await result.response;
-    return response.text() || "No analysis available.";
+      if (!response.ok) {
+        throw new Error('Failed to analyze via proxy');
+      }
+
+      const data = await response.json();
+      return data.text || "No analysis available.";
+    } else {
+      // Direct call fallback
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: 'image/png',
+          },
+        },
+        'Describe this video frame in detail. Describe the lighting, composition, and main subjects.',
+      ]);
+
+      const response = await result.response;
+      return response.text() || "No analysis available.";
+    }
   } catch (error) {
     console.error("Gemini analysis error:", error);
     throw new Error("Failed to analyze image. Please check your API key.");

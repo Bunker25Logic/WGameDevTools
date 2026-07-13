@@ -117,6 +117,19 @@ export async function generateAnimationFrames(
       const endpoint = aiProvider === 'gemini' ? '/api/gemini' : '/api/grok';
       const base64Data = baseImageDataUrl.split(",")[1];
       
+      const systemPrompt = `You are an expert sprite animator for game development. 
+Your task is to analyze the provided sprite image and create ${frameCount} animation frames based on the user's animation request.
+
+User's animation request: "${prompt}"
+
+Please provide detailed descriptions for ${frameCount} sequential animation frames that would create smooth, natural movement.
+Each frame description should specify:
+1. The frame number (1-${frameCount})
+2. Specific changes from the base image (position, rotation, deformation)
+3. Which parts of the sprite should move and how
+
+Format your response as a JSON array of frame descriptions.`;
+
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -124,6 +137,7 @@ export async function generateAnimationFrames(
         },
         body: JSON.stringify({
           prompt,
+          systemPrompt,
           imageData: base64Data,
           frameCount,
         }),

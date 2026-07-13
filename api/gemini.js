@@ -1,15 +1,11 @@
 // API Proxy para Gemini - Protege a chave API
 export default async function handler(req, res) {
-  // CORS - Permite apenas seu domínio do GitHub Pages
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "https://seu-usuario.github.io", // Substitua pelo seu usuário
-  ];
+  // CORS - Lendo do ambiente, com fallback para localhost em dev
+  const allowedOriginsEnv = process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:3001,http://localhost:5173";
+  const allowedOrigins = allowedOriginsEnv.split(",").map(s => s.trim());
 
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
+  if (origin && allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
@@ -25,21 +21,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, imageData, frameCount } = req.body;
+  const { systemPrompt, prompt, imageData, frameCount } = req.body;
 
-  if (!prompt || !imageData || !frameCount) {
-    return res.status(400).json({ error: "Missing required fields" });
+  if (!prompt || !imageData) {
+    return res.status(400).json({ error: "Missing required fields (prompt, imageData)" });
   }
 
   try {
-    const systemPrompt = `You are an expert sprite animator for game development. 
-Your task is to analyze the provided sprite image and create ${frameCount} animation frames based on the user's animation request.
+    const finalSystemPrompt = systemPrompt || `You are an expert sprite animator for game development. 
+Your task is to analyze the provided sprite image and create ${frameCount || 8} animation frames based on the user's animation request.
 
 User's animation request: "${prompt}"
 
-Please provide detailed descriptions for ${frameCount} sequential animation frames that would create smooth, natural movement.
+Please provide detailed descriptions for ${frameCount || 8} sequential animation frames that would create smooth, natural movement.
 Each frame description should specify:
-1. The frame number (1-${frameCount})
+1. The frame number (1-${frameCount || 8})
 2. Specific changes from the base image (position, rotation, deformation)
 3. Which parts of the sprite should move and how
 
@@ -56,7 +52,7 @@ Format your response as a JSON array of frame descriptions.`;
           contents: [
             {
               parts: [
-                { text: systemPrompt },
+                { text: finalSystemPrompt },
                 {
                   inlineData: {
                     mimeType: "image/png",
@@ -83,7 +79,7 @@ Format your response as a JSON array of frame descriptions.`;
         contents: [
           {
             parts: [
-              { text: systemPrompt },
+              { text: finalSystemPrompt },
               {
                 inlineData: {
                   mimeType: "image/png",

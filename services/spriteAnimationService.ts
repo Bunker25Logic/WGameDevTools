@@ -8,6 +8,20 @@ export interface AnimationFrame {
   frameNumber: number;
 }
 
+export interface DistortionEffect {
+  type: 'pinch_y' | 'pinch_x' | 'bulge';
+  centerX: number;
+  centerY: number;
+  radius: number;
+  intensitySequence: number[];
+}
+
+export interface SmartRiggerData {
+  globalAnimation: 'none' | 'wind' | 'rotate' | 'jump' | 'swing' | 'fly' | 'bounce' | 'wave' | 'breathe';
+  globalIntensity: number;
+  effects: DistortionEffect[];
+}
+
 /**
  * Convert an image to sprite style using canvas processing
  */
@@ -24,15 +38,9 @@ export async function convertToSprite(imageFile: File): Promise<string> {
           return;
         }
 
-        // Set canvas size to match image
         canvas.width = img.width;
         canvas.height = img.height;
-
-        // Draw the image
         ctx.drawImage(img, 0, 0);
-
-        // Apply sprite-like processing (optional enhancement)
-        // You can add filters here if needed
 
         resolve(canvas.toDataURL("image/png"));
       };
@@ -61,7 +69,6 @@ export function rotateSprite(
         return;
       }
 
-      // Calculate new canvas size to fit rotated image
       const radians = (degrees * Math.PI) / 180;
       const sin = Math.abs(Math.sin(radians));
       const cos = Math.abs(Math.cos(radians));
@@ -71,7 +78,6 @@ export function rotateSprite(
       canvas.width = newWidth;
       canvas.height = newHeight;
 
-      // Translate to center, rotate, then translate back
       ctx.translate(newWidth / 2, newHeight / 2);
       ctx.rotate(radians);
       ctx.drawImage(img, -img.width / 2, -img.height / 2);
@@ -111,24 +117,43 @@ export async function generateAnimationFrames(
   try {
     let aiAnalysis = '';
     
+    // NEW SYSTEM PROMPT FOR SMART RIGGER
+    const systemPrompt = `You are an expert Computer Vision Rigger for 2D game sprites.
+Your task is to analyze the provided sprite image and output a mathematical distortion map (JSON) to animate the user's request.
+
+User's animation request: "${prompt}"
+Frame count: ${frameCount}
+
+1. Analyze the image to find the normalized coordinates (0.0 to 1.0) of the parts that need to move (e.g., eyes for blinking, chest for breathing). X=0 is left edge, X=1 is right edge. Y=0 is top edge, Y=1 is bottom edge.
+2. Choose the appropriate localized distortion effect if needed:
+   - "pinch_y": Squeezes pixels vertically. Great for blinking eyes or talking mouths.
+   - "pinch_x": Squeezes pixels horizontally.
+   - "bulge": Pushes pixels outward. Great for breathing chests.
+3. For each effect, provide an array "intensitySequence" of exactly ${frameCount} numbers between 0.0 and 1.0. 
+   - 0.0 means no distortion (base image).
+   - 1.0 means maximum distortion.
+   - Example for an eye blink over 10 frames: [0, 0, 0, 0.4, 1.0, 1.0, 0.4, 0, 0, 0]
+4. If the animation requires the WHOLE character to move (like jumping, flying, or wind blowing), choose a "globalAnimation" from this list: "none", "wind", "rotate", "jump", "swing", "fly", "bounce", "wave", "breathe". Set "globalIntensity" from 0.0 to 1.0.
+
+You MUST output ONLY a valid JSON object. No markdown, no backticks, no explanations. Just the JSON:
+{
+  "globalAnimation": "none",
+  "globalIntensity": 0.0,
+  "effects": [
+    {
+      "type": "pinch_y",
+      "centerX": 0.45,
+      "centerY": 0.35,
+      "radius": 0.1,
+      "intensitySequence": [0,0,0,1,1,0,0,0]
+    }
+  ]
+}`;
+
     if (USE_BACKEND_PROXY) {
-      // Usar backend proxy (seguro)
       const endpoint = aiProvider === 'gemini' ? '/api/gemini' : '/api/grok';
       const base64Data = baseImageDataUrl.split(",")[1];
       
-      const systemPrompt = `You are an expert sprite animator for game development. 
-Your task is to analyze the provided sprite image and create ${frameCount} animation frames based on the user's animation request.
-
-User's animation request: "${prompt}"
-
-Please provide detailed descriptions for ${frameCount} sequential animation frames that would create smooth, natural movement.
-Each frame description should specify:
-1. The frame number (1-${frameCount})
-2. Specific changes from the base image (position, rotation, deformation)
-3. Which parts of the sprite should move and how
-
-Format your response as a JSON array of frame descriptions.`;
-
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -150,26 +175,11 @@ Format your response as a JSON array of frame descriptions.`;
       const data = await response.json();
       aiAnalysis = data.text || '';
     } else {
-      // Usar chamadas diretas (desenvolvimento)
       if (aiProvider === 'gemini') {
         const genAI = new GoogleGenerativeAI(API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        // Convert base64 to proper format for Gemini
         const base64Data = baseImageDataUrl.split(",")[1];
-
-        const systemPrompt = `You are an expert sprite animator for game development. 
-Your task is to analyze the provided sprite image and create ${frameCount} animation frames based on the user's animation request.
-
-User's animation request: "${prompt}"
-
-Please provide detailed descriptions for ${frameCount} sequential animation frames that would create smooth, natural movement.
-Each frame description should specify:
-1. The frame number (1-${frameCount})
-2. Specific changes from the base image (position, rotation, deformation)
-3. Which parts of the sprite should move and how
-
-Format your response as a JSON array of frame descriptions.`;
 
         const result = await model.generateContent([
           systemPrompt,
@@ -184,19 +194,16 @@ Format your response as a JSON array of frame descriptions.`;
         const response = await result.response;
         aiAnalysis = response.text();
       } else {
-        // Use Grok API
         const { analyzeFrameWithGrok } = await import('./grokService');
         aiAnalysis = await analyzeFrameWithGrok(baseImageDataUrl, prompt);
       }
     }
 
-    // For now, we'll create interpolated frames based on the AI's analysis
-    // In a production environment, you might use image generation APIs
     const frames = await createInterpolatedFrames(
       baseImageDataUrl,
       frameCount,
       aiAnalysis,
-      prompt // Pass the user prompt for reliable keyword matching
+      prompt
     );
 
     return frames;
@@ -208,10 +215,78 @@ Format your response as a JSON array of frame descriptions.`;
   }
 }
 
-/**
- * Create interpolated frames based on AI analysis
- * This is a simplified version - in production, you'd use more sophisticated techniques
- */
+function parseAIAnalysis(aiAnalysis: string, prompt: string, frameCount: number): SmartRiggerData {
+  try {
+    // Extract JSON from potential markdown code blocks
+    let jsonStr = aiAnalysis.trim();
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.substring(7);
+      if (jsonStr.endsWith('```')) {
+        jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+      }
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.substring(3);
+      if (jsonStr.endsWith('```')) {
+        jsonStr = jsonStr.substring(0, jsonStr.length - 3);
+      }
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    
+    // Validate arrays length
+    if (parsed.effects) {
+      parsed.effects.forEach((eff: any) => {
+        if (!eff.intensitySequence || eff.intensitySequence.length !== frameCount) {
+           console.warn(`Intensity sequence length mismatch. Expected ${frameCount}`);
+           // pad or truncate
+           if (!eff.intensitySequence) eff.intensitySequence = [];
+           while(eff.intensitySequence.length < frameCount) eff.intensitySequence.push(0);
+           eff.intensitySequence = eff.intensitySequence.slice(0, frameCount);
+        }
+      });
+    }
+
+    return {
+      globalAnimation: parsed.globalAnimation || 'none',
+      globalIntensity: parsed.globalIntensity || 0,
+      effects: parsed.effects || []
+    };
+  } catch (e) {
+    console.error("Failed to parse AI JSON, falling back to basic analysis", e, aiAnalysis);
+    
+    // Fallback logic
+    const lowerPrompt = prompt.toLowerCase();
+    let globalAnimation: SmartRiggerData['globalAnimation'] = 'none';
+    let globalIntensity = 0.5;
+
+    if (lowerPrompt.includes('vento') || lowerPrompt.includes('wind') || lowerPrompt.includes('capa')) {
+      globalAnimation = 'wind'; globalIntensity = 0.8;
+    } else if (lowerPrompt.includes('respira') || lowerPrompt.includes('breathe') || lowerPrompt.includes('peito')) {
+      globalAnimation = 'breathe'; globalIntensity = 0.6;
+    } else if (lowerPrompt.includes('gir') || lowerPrompt.includes('rotat') || lowerPrompt.includes('spin')) {
+      globalAnimation = 'rotate'; globalIntensity = 1.0;
+    } else if (lowerPrompt.includes('pul') || lowerPrompt.includes('jump') || lowerPrompt.includes('salt')) {
+      globalAnimation = 'jump'; globalIntensity = 0.8;
+    } else if (lowerPrompt.includes('balan') || lowerPrompt.includes('swing') || lowerPrompt.includes('sway')) {
+      globalAnimation = 'swing'; globalIntensity = 0.6;
+    } else if (lowerPrompt.includes('vo') || lowerPrompt.includes('fly') || lowerPrompt.includes('float')) {
+      globalAnimation = 'fly'; globalIntensity = 0.7;
+    } else if (lowerPrompt.includes('quic') || lowerPrompt.includes('bounce')) {
+      globalAnimation = 'bounce'; globalIntensity = 0.9;
+    } else if (lowerPrompt.includes('ond') || lowerPrompt.includes('wave')) {
+      globalAnimation = 'wave'; globalIntensity = 0.5;
+    } else {
+      globalAnimation = 'breathe'; globalIntensity = 0.3; // Default
+    }
+
+    return {
+      globalAnimation,
+      globalIntensity,
+      effects: [] // No localized mesh distortion on fallback
+    };
+  }
+}
+
 async function createInterpolatedFrames(
   baseImageDataUrl: string,
   frameCount: number,
@@ -219,13 +294,15 @@ async function createInterpolatedFrames(
   userPrompt: string
 ): Promise<AnimationFrame[]> {
   const frames: AnimationFrame[] = [];
+  const riggerData = parseAIAnalysis(aiAnalysis, userPrompt, frameCount);
 
   for (let i = 0; i < frameCount; i++) {
     const progress = i / (frameCount - 1);
     const frameDataUrl = await applyFrameTransformation(
       baseImageDataUrl,
       progress,
-      userPrompt, // Use user prompt for keyword detection instead of AI JSON
+      i,
+      riggerData
     );
 
     frames.push({
@@ -238,128 +315,63 @@ async function createInterpolatedFrames(
   return frames;
 }
 
-/**
- * Analyze prompt to determine animation type and parameters
- */
-function analyzePrompt(prompt: string): {
-  type: 'rotate' | 'jump' | 'swing' | 'fly' | 'bounce' | 'wave' | 'wind' | 'breathe' | 'default';
-  intensity: number;
-} {
-  const lowerPrompt = prompt.toLowerCase();
-  
-  if (lowerPrompt.includes('vento') || lowerPrompt.includes('wind') || lowerPrompt.includes('capa')) {
-    return { type: 'wind', intensity: 0.8 };
-  }
-  if (lowerPrompt.includes('respira') || lowerPrompt.includes('breathe') || lowerPrompt.includes('peito')) {
-    return { type: 'breathe', intensity: 0.6 };
-  }
-  if (lowerPrompt.includes('gir') || lowerPrompt.includes('rotat') || lowerPrompt.includes('spin')) {
-    return { type: 'rotate', intensity: 1.0 };
-  }
-  if (lowerPrompt.includes('pul') || lowerPrompt.includes('jump') || lowerPrompt.includes('salt')) {
-    return { type: 'jump', intensity: 0.8 };
-  }
-  if (lowerPrompt.includes('balan') || lowerPrompt.includes('swing') || lowerPrompt.includes('sway')) {
-    return { type: 'swing', intensity: 0.6 };
-  }
-  if (lowerPrompt.includes('vo') || lowerPrompt.includes('fly') || lowerPrompt.includes('float')) {
-    return { type: 'fly', intensity: 0.7 };
-  }
-  if (lowerPrompt.includes('quic') || lowerPrompt.includes('bounce')) {
-    return { type: 'bounce', intensity: 0.9 };
-  }
-  if (lowerPrompt.includes('ond') || lowerPrompt.includes('wave')) {
-    return { type: 'wave', intensity: 0.5 };
-  }
-  
-  return { type: 'default', intensity: 0.4 };
-}
-
-/**
- * Render 3D rotation using vertical slicing technique
- * This creates a realistic 3D effect by rendering the image in vertical slices with perspective
- */
 function render3DRotation(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: HTMLCanvasElement | HTMLImageElement,
   rotateY: number,
   centerX: number,
   centerY: number,
 ): void {
-  const sliceCount = 40; // Number of vertical slices
+  const sliceCount = 40;
   const sliceWidth = img.width / sliceCount;
   
-  // Draw each slice with perspective
   for (let i = 0; i < sliceCount; i++) {
     const sliceX = i * sliceWidth;
-    
-    // Calculate 3D position for this slice
-    // Map slice position to -1 to 1 range
     const normalizedX = (i / sliceCount) * 2 - 1;
-    
-    // Calculate Z position based on rotation
     const angle = rotateY;
     const z = Math.sin(angle) * normalizedX;
     const x = Math.cos(angle) * normalizedX;
     
-    // Apply perspective
-    const perspective = 600; // Distance to viewer
+    const perspective = 600;
     const scale = perspective / (perspective + z * 100);
     
-    // Calculate slice dimensions with perspective
     const sliceDrawWidth = sliceWidth * scale;
     const sliceDrawHeight = img.height * scale;
     
-    // Calculate position
     const drawX = centerX + x * (img.width / 2) * Math.cos(angle) - sliceDrawWidth / 2;
     const drawY = centerY - sliceDrawHeight / 2;
     
-    // Apply lighting based on angle to surface
     const lighting = (Math.cos(angle + normalizedX * Math.PI) + 1) / 2;
-    const brightness = 0.5 + lighting * 0.5; // Range from 0.5 to 1.0
+    const brightness = 0.5 + lighting * 0.5;
     
     ctx.save();
-    
-    // Apply brightness
     ctx.globalAlpha = brightness;
     
-    // Draw the slice
     ctx.drawImage(
       img,
-      sliceX, 0, sliceWidth, img.height, // Source
-      drawX, drawY, sliceDrawWidth, sliceDrawHeight // Destination
+      sliceX, 0, sliceWidth, img.height,
+      drawX, drawY, sliceDrawWidth, sliceDrawHeight
     );
     
     ctx.restore();
   }
 }
 
-/**
- * Render mathematically precise wind deformation using 1-pixel scanline displacement (SNES style)
- */
 function renderWindEffect(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: HTMLCanvasElement | HTMLImageElement,
   progressTime: number,
   intensity: number,
   centerX: number,
   centerY: number,
 ): void {
-  // 1 slice per pixel ensures ultra-smooth curves without blocky wobbles
   const sliceCount = img.height; 
   const sliceHeight = 1;
   
   for (let y = 0; y < sliceCount; y++) {
-    // ny goes from 0 (top of sprite/head) to 1 (bottom of sprite/feet)
     const ny = y / sliceCount;
-    
-    // Rigidity curve: by powering ny to 2.5, the top half of the sprite stays almost perfectly still
-    // while the bottom half (cape, coat, legs) sways smoothly.
     const rigidity = Math.pow(ny, 2.5); 
     
-    // Mathematical wave formula:
-    // Speed determines how fast the wave travels.
-    // Frequency determines how many "ripples" exist along the cape.
     const speed = 10;
     const frequency = 4.5;
     const amplitude = 18 * intensity;
@@ -371,23 +383,101 @@ function renderWindEffect(
     
     ctx.drawImage(
       img,
-      0, y, img.width, sliceHeight, // Source: 1 pixel tall row
-      drawX, drawY, img.width, sliceHeight // Destination: 1 pixel tall row
+      0, y, img.width, sliceHeight,
+      drawX, drawY, img.width, sliceHeight
     );
   }
 }
 
-/**
- * Apply 3D transformation to create immersive animation frame
- */
+function applyPixelDistortions(
+  img: HTMLImageElement,
+  effects: DistortionEffect[],
+  frameIndex: number
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+
+  if (!effects || effects.length === 0) {
+    return canvas;
+  }
+
+  const imgData = ctx.getImageData(0, 0, img.width, img.height);
+  const data = imgData.data;
+  const outData = ctx.createImageData(img.width, img.height);
+  const out = outData.data;
+  
+  const aspect = img.width / img.height;
+
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      let srcX = x;
+      let srcY = y;
+      
+      const nx = x / img.width;
+      const ny = y / img.height;
+
+      for (const effect of effects) {
+        const intensity = effect.intensitySequence[frameIndex] || 0;
+        if (intensity === 0) continue;
+
+        const dx = (nx - effect.centerX) * aspect;
+        const dy = ny - effect.centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < effect.radius) {
+          const falloff = 1 - (distance / effect.radius);
+          const smooth = falloff * falloff * (3 - 2 * falloff);
+
+          if (effect.type === 'pinch_y') {
+            const displacement = dy * intensity * smooth * 1.5;
+            srcY += displacement * img.height; 
+          }
+          else if (effect.type === 'pinch_x') {
+            const displacement = (nx - effect.centerX) * intensity * smooth * 1.5;
+            srcX += displacement * img.width;
+          }
+          else if (effect.type === 'bulge') {
+             const displacementX = dx * intensity * smooth * 0.5;
+             const displacementY = dy * intensity * smooth * 0.5;
+             srcX -= displacementX * img.width;
+             srcY -= displacementY * img.height;
+          }
+        }
+      }
+
+      const sx = Math.max(0, Math.min(img.width - 1, Math.round(srcX)));
+      const sy = Math.max(0, Math.min(img.height - 1, Math.round(srcY)));
+      
+      const srcIdx = (sy * img.width + sx) * 4;
+      const dstIdx = (y * img.width + x) * 4;
+      
+      out[dstIdx] = data[srcIdx];
+      out[dstIdx + 1] = data[srcIdx + 1];
+      out[dstIdx + 2] = data[srcIdx + 2];
+      out[dstIdx + 3] = data[srcIdx + 3];
+    }
+  }
+  
+  ctx.putImageData(outData, 0, 0);
+  return canvas;
+}
+
 async function applyFrameTransformation(
   imageDataUrl: string,
   progress: number,
-  userPrompt: string,
+  frameIndex: number,
+  riggerData: SmartRiggerData,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
+    const originalImg = new Image();
+    originalImg.onload = () => {
+      // Step 1: Apply localized pixel distortions first
+      const distortedImgCanvas = applyPixelDistortions(originalImg, riggerData.effects, frameIndex);
+
+      // Step 2: Apply global canvas transformations
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       if (!ctx) {
@@ -395,65 +485,54 @@ async function applyFrameTransformation(
         return;
       }
 
-      // Increase canvas size to accommodate 3D transformations and shadows
       const padding = 150;
-      canvas.width = img.width + padding * 2;
-      canvas.height = img.height + padding * 2;
-
-      // Analyze user prompt to determine animation type
-      const animation = analyzePrompt(userPrompt);
+      canvas.width = originalImg.width + padding * 2;
+      canvas.height = originalImg.height + padding * 2;
       
-      // Calculate animation parameters based on progress and type
-      const t = progress * Math.PI * 2; // Full cycle
+      const t = progress * Math.PI * 2;
       let rotateX = 0, rotateY = 0, rotateZ = 0;
       let translateX = 0, translateY = 0;
       let scaleX = 1, scaleY = 1;
       let shadowOffsetX = 0, shadowOffsetY = 0, shadowBlur = 0;
       let use3DRotation = false;
       let useWindDeformation = false;
-      let anchorY = 0; // Allows anchoring the transformation (e.g. at the feet)
+      let anchorY = 0;
 
-      switch (animation.type) {
+      const intensity = riggerData.globalIntensity;
+
+      switch (riggerData.globalAnimation) {
         case 'wind':
           useWindDeformation = true;
           shadowOffsetY = 12;
           shadowBlur = 10;
           break;
-
         case 'breathe':
-          // Mathematically precise Squash & Stretch anchored at the feet
           const breathPhase = Math.sin(t);
-          scaleY = 1 + breathPhase * 0.035 * animation.intensity;
-          scaleX = 1 - breathPhase * 0.015 * animation.intensity;
-          anchorY = img.height / 2; // Anchor at the very bottom (feet) so it doesn't float
+          scaleY = 1 + breathPhase * 0.035 * intensity;
+          scaleX = 1 - breathPhase * 0.015 * intensity;
+          anchorY = originalImg.height / 2; 
           shadowOffsetY = 12;
           shadowBlur = 10 + breathPhase * 2;
           break;
-
         case 'rotate':
-          // Full 3D rotation using slicing technique
-          rotateY = t * animation.intensity;
+          rotateY = t * intensity;
           use3DRotation = true;
-          translateY = Math.sin(t) * 10; // Slight vertical movement
+          translateY = Math.sin(t) * 10; 
           shadowOffsetX = Math.sin(rotateY) * 30;
           shadowOffsetY = 15;
           shadowBlur = 20 + Math.abs(Math.sin(t)) * 10;
           break;
-
         case 'jump':
-          // Jumping motion with arc
           const jumpProgress = Math.sin(t);
-          translateY = -Math.abs(jumpProgress) * 100 * animation.intensity;
+          translateY = -Math.abs(jumpProgress) * 100 * intensity;
           rotateX = jumpProgress * 0.15;
-          scaleY = 1 - Math.abs(jumpProgress) * 0.08; // Squash and stretch
+          scaleY = 1 - Math.abs(jumpProgress) * 0.08; 
           scaleX = 1 + Math.abs(jumpProgress) * 0.04;
           shadowOffsetY = 25 + Math.abs(jumpProgress) * 40;
           shadowBlur = 15 + Math.abs(jumpProgress) * 25;
           break;
-
         case 'swing':
-          // Pendulum swing with subtle 3D rotation
-          const swingAngle = Math.sin(t) * 0.5 * animation.intensity;
+          const swingAngle = Math.sin(t) * 0.5 * intensity;
           rotateY = swingAngle;
           use3DRotation = swingAngle > 0.2 || swingAngle < -0.2;
           rotateZ = swingAngle * 0.3;
@@ -462,67 +541,53 @@ async function applyFrameTransformation(
           shadowOffsetY = 12;
           shadowBlur = 15;
           break;
-
         case 'fly':
-          // Flying/floating motion
-          translateY = Math.sin(t) * 40 * animation.intensity;
+          translateY = Math.sin(t) * 40 * intensity;
           translateX = Math.cos(t * 0.5) * 25;
           rotateZ = Math.sin(t) * 0.08;
           scaleX = scaleY = 1 + Math.sin(t) * 0.06;
           shadowOffsetY = 20 + Math.abs(Math.sin(t)) * 15;
           shadowBlur = 25;
           break;
-
         case 'bounce':
-          // Bouncing motion
           const bounceProgress = Math.abs(Math.sin(t * 2));
-          translateY = -bounceProgress * 80 * animation.intensity;
-          scaleY = 1 + (1 - bounceProgress) * 0.2; // Squash on impact
+          translateY = -bounceProgress * 80 * intensity;
+          scaleY = 1 + (1 - bounceProgress) * 0.2; 
           scaleX = 1 - (1 - bounceProgress) * 0.1;
           shadowOffsetY = 20 + bounceProgress * 35;
           shadowBlur = 10 + bounceProgress * 20;
           break;
-
         case 'wave':
-          // Wave/breathing effect
           const wave = Math.sin(t);
-          scaleX = scaleY = 1 + wave * 0.1 * animation.intensity;
+          scaleX = scaleY = 1 + wave * 0.1 * intensity;
           rotateZ = wave * 0.06;
           translateY = wave * 8;
           shadowOffsetY = 15;
           shadowBlur = 12;
           break;
-
+        case 'none':
         default:
-          // Subtle breathing animation fallback
-          const breatheFallback = Math.sin(t);
-          scaleX = scaleY = 1 + breatheFallback * 0.04;
-          translateY = breatheFallback * 5;
           shadowOffsetY = 12;
           shadowBlur = 10;
+          break;
       }
 
-      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Calculate center position
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      // Draw shadow first
       if (shadowBlur > 0) {
         ctx.save();
         ctx.translate(centerX + translateX, centerY + translateY);
-        
-        // Draw elliptical shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.filter = `blur(${shadowBlur}px)`;
         ctx.beginPath();
         ctx.ellipse(
           shadowOffsetX,
-          shadowOffsetY + img.height / 2,
-          img.width / 3,
-          img.height / 8,
+          shadowOffsetY + originalImg.height / 2,
+          originalImg.width / 3,
+          originalImg.height / 8,
           0,
           0,
           Math.PI * 2
@@ -535,28 +600,19 @@ async function applyFrameTransformation(
       ctx.save();
       ctx.translate(centerX + translateX, centerY + translateY);
 
-      // Apply transformations based on animation type
       if (use3DRotation) {
-        // Use realistic 3D rotation with slicing
-        render3DRotation(ctx, img, rotateY, 0, 0);
+        render3DRotation(ctx, distortedImgCanvas, rotateY, 0, 0);
       } else if (useWindDeformation) {
-        // Use 2D pixel displacement for wind/cape waving
-        renderWindEffect(ctx, img, progress, animation.intensity, 0, 0);
+        renderWindEffect(ctx, distortedImgCanvas, progress, intensity, 0, 0);
       } else {
-        // Use standard 2D transformations for other animations
-        
-        // Apply rotateX effect (tilt forward/backward)
         if (Math.abs(rotateX) > 0.01) {
-          const tiltScale = Math.cos(rotateX);
-          ctx.scale(1, tiltScale);
+          ctx.scale(1, Math.cos(rotateX));
         }
 
-        // Apply rotateZ (standard 2D rotation)
         if (Math.abs(rotateZ) > 0.01) {
           ctx.rotate(rotateZ);
         }
 
-        // Apply scale with anchor point support (Squash & Stretch)
         if (anchorY !== 0) {
           ctx.translate(0, anchorY);
           ctx.scale(scaleX, scaleY);
@@ -565,23 +621,18 @@ async function applyFrameTransformation(
           ctx.scale(scaleX, scaleY);
         }
 
-        // Draw image centered
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.drawImage(distortedImgCanvas, -originalImg.width / 2, -originalImg.height / 2);
       }
 
       ctx.restore();
-
       resolve(canvas.toDataURL("image/png"));
     };
-    img.onerror = () =>
+    originalImg.onerror = () =>
       reject(new Error("Failed to load image for transformation"));
-    img.src = imageDataUrl;
+    originalImg.src = imageDataUrl;
   });
 }
 
-/**
- * Download a single frame
- */
 export function downloadFrame(dataUrl: string, filename: string): void {
   const link = document.createElement("a");
   link.href = dataUrl;
@@ -591,9 +642,6 @@ export function downloadFrame(dataUrl: string, filename: string): void {
   document.body.removeChild(link);
 }
 
-/**
- * Download all frames as individual files
- */
 export function downloadAllFrames(
   frames: AnimationFrame[],
   baseName: string = "sprite",
@@ -604,9 +652,6 @@ export function downloadAllFrames(
   });
 }
 
-/**
- * Create a sprite sheet from frames
- */
 export async function createSpriteSheet(
   frames: AnimationFrame[],
 ): Promise<string> {
@@ -642,7 +687,6 @@ export async function createSpriteSheet(
           loadedCount++;
 
           if (loadedCount === frames.length) {
-            // Draw all frames in grid
             images.forEach((image, idx) => {
               const col = idx % cols;
               const row = Math.floor(idx / cols);

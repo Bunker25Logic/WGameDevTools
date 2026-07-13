@@ -41,13 +41,21 @@ Each frame description should specify:
 
 Format your response as a JSON array of frame descriptions.`;
 
-    const url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
-    url.searchParams.set("key", process.env.GEMINI_API_KEY);
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(401).json({ 
+        error: "Missing API Key", 
+        details: "As variáveis GEMINI_API_KEY ou VITE_GEMINI_API_KEY não foram encontradas no painel do Vercel."
+      });
+    }
 
-    const finalResponse = await fetch(url.toString(), {
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+    const finalResponse = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
       },
       body: JSON.stringify({
         contents: [

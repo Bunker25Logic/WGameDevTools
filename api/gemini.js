@@ -41,33 +41,7 @@ Each frame description should specify:
 
 Format your response as a JSON array of frame descriptions.`;
 
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: finalSystemPrompt },
-                {
-                  inlineData: {
-                    mimeType: "image/png",
-                    data: imageData,
-                  },
-                },
-              ],
-            },
-          ],
-        }),
-      },
-    );
-
-    // Adiciona a chave API como query parameter (método da API Gemini)
-    const url = new URL(response.url);
+    const url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent");
     url.searchParams.set("key", process.env.GEMINI_API_KEY);
 
     const finalResponse = await fetch(url.toString(), {

@@ -200,11 +200,10 @@ Format your response as a JSON array of frame descriptions.`;
     );
 
     return frames;
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error generating animation frames with ${aiProvider}:`, error);
-    const modelName = aiProvider === 'gemini' ? 'Gemini' : 'Grok';
     throw new Error(
-      `Failed to generate animation frames using ${modelName}. Please check your ${aiProvider.toUpperCase()}_API_KEY and try again.`,
+      error.message || `Failed to generate animation frames using ${aiProvider}. Please check your ${aiProvider.toUpperCase()}_API_KEY and try again.`,
     );
   }
 }
